@@ -10,6 +10,11 @@ RESOURCES="$CONTENTS/Resources"
 mkdir -p "$MACOS"
 mkdir -p "$RESOURCES"
 
+# Copy Icon
+if [ -f "BlinkReminder.icns" ]; then
+    cp "BlinkReminder.icns" "$RESOURCES/AppIcon.icns"
+fi
+
 # Create Info.plist
 cat > "$CONTENTS/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -18,8 +23,10 @@ cat > "$CONTENTS/Info.plist" <<EOF
 <dict>
     <key>CFBundleExecutable</key>
     <string>$APP_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.user.blinkreminder</string>
+    <string>com.agamtech.blinkreminder</string>
     <key>CFBundleName</key>
     <string>$APP_NAME</string>
     <key>CFBundlePackageType</key>
@@ -40,6 +47,9 @@ swiftc -O -sdk $(xcrun --show-sdk-path --sdk macosx) \
     -parse-as-library \
     BlinkReminder.swift \
     -o "$MACOS/$APP_NAME"
+
+# Ad-hoc codesign to help with permissions/notifications
+codesign --force --deep --sign - "$APP_BUNDLE"
 
 echo "Build complete: $APP_BUNDLE"
 

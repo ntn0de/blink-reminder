@@ -1,2 +1,6 @@
 BlinkReminder.app/
 .DS_Store
+*.png
+*.icns
+BlinkReminder.iconset/
+app.log

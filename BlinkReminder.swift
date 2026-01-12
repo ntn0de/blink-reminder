@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     var interval: TimeInterval = 20 * 60 // 20 minutes
     var overlayEnabled: Bool = true // Default to overlay since notifications are flaky
     var overlayWindow: OverlayWindow?
+    var isPaused: Bool = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
@@ -73,6 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         menu.addItem(overlayItem)
         
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Pause", action: #selector(togglePause(_:)), keyEquivalent: "p"))
         menu.addItem(NSMenuItem(title: "Trigger Break Now", action: #selector(triggerBreak), keyEquivalent: "b"))
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         
@@ -91,6 +93,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         overlayEnabled.toggle()
         updateMenuStates()
     }
+
+    @objc func togglePause(_ sender: NSMenuItem) {
+        isPaused.toggle()
+        if isPaused {
+            timer?.invalidate()
+            statusItem?.button?.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "Blink Reminder (Paused)")
+        } else {
+            startTimer()
+            statusItem?.button?.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Blink Reminder")
+        }
+        updateMenuStates()
+    }
     
     func updateMenuStates() {
         guard let menu = statusItem?.menu else { return }
@@ -106,14 +120,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         if let overlayItem = menu.items.first(where: { $0.title == "Use Screen Overlay" }) {
             overlayItem.state = overlayEnabled ? .on : .off
         }
+
+        // Update Pause Title
+        if let pauseItem = menu.items.first(where: { $0.action == #selector(togglePause(_:)) }) {
+            pauseItem.title = isPaused ? "Resume" : "Pause"
+        }
     }
     
     func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            print("Notification permission granted: \(granted)")
+            if let error = error {
+                print("Notification permission error: \(error)")
+            }
+        }
+        
+        center.getNotificationSettings { settings in
+            print("Notification settings: \(settings)")
+        }
     }
     
     func startTimer() {
         timer?.invalidate()
+        guard !isPaused else { return }
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.triggerBreak()
         }
