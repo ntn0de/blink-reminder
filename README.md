@@ -14,10 +14,10 @@ A minimal, native macOS menu bar application designed to reduce digital eye stra
 
 ### Option 1: Homebrew (Easiest)
 
-You can install BlinkReminder using Homebrew:
+You can install BlinkReminder directly from this repository:
 
 ```bash
-brew tap ntn0de/tap
+brew tap ntn0de/blink-reminder
 brew install --cask blink-reminder
 ```
 
