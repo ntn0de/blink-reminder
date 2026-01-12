@@ -18,6 +18,14 @@ BlinkReminder is a native macOS menu bar application designed to reduce eye stra
 - **Build System:** Shell script (`build.sh`) using `swiftc`.
 
 ## Build & Run
+
+### Homebrew (Primary)
+```bash
+brew tap ntn0de/tap
+brew install --cask blink-reminder
+```
+
+### Manual Build
 1.  **Build:**
     ```bash
     ./build.sh
@@ -29,6 +37,8 @@ BlinkReminder is a native macOS menu bar application designed to reduce eye stra
     ```
 
 ## Recent Changes
+- Added GitHub Actions workflow for automated releases and SHA256 calculation.
+- Added Homebrew Cask template for easy installation.
 - Added Pause/Resume functionality.
 - Implemented "👀" emoji-based icon generation.
 - Added ad-hoc code signing and Bundle ID updates for better notification support.
