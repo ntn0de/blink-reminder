@@ -17,7 +17,7 @@ A minimal, native macOS menu bar application designed to reduce digital eye stra
 You can install BlinkReminder directly from this repository:
 
 ```bash
-brew tap ntn0de/blink-reminder
+brew tap ntn0de/blink-reminder https://github.com/ntn0de/blink-reminder
 brew install --cask blink-reminder
 ```
 
