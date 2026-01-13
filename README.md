@@ -21,6 +21,15 @@ brew tap ntn0de/blink-reminder https://github.com/ntn0de/blink-reminder
 brew install --cask blink-reminder
 ```
 
+### Updating
+
+To update BlinkReminder to the latest version via Homebrew:
+
+```bash
+brew update
+brew upgrade --cask blink-reminder
+```
+
 ### Option 2: Build from Source
 
 1.  **Clone the repository:**

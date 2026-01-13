@@ -1,6 +1,6 @@
 cask "blink-reminder" do
-  version "1.0.2"
-  sha256 "1f842008bd6c268f9a075f30e13eaebf4d8d375c32df175791873d990e5bf263"
+  version "1.0.3"
+  sha256 ""
 
   url "https://github.com/ntn0de/blink-reminder/releases/download/v#{version}/BlinkReminder.zip"
   name "BlinkReminder"

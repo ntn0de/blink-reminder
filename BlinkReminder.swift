@@ -45,7 +45,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     func setupMenu() {
         let menu = NSMenu()
         
-        menu.addItem(NSMenuItem(title: "Blink Reminder", action: nil, keyEquivalent: ""))
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        menu.addItem(NSMenuItem(title: "Blink Reminder v\(version)", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         
         // Interval Submenu

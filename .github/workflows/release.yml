@@ -18,7 +18,10 @@ jobs:
       - name: Build Application
         run: |
           chmod +x build.sh
-          ./build.sh
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "Building version: $VERSION"
+          ./build.sh "$VERSION"
 
       - name: Create Distribution Zip
         run: |

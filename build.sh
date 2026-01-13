@@ -5,6 +5,7 @@ APP_BUNDLE="$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
+VERSION="${1:-1.0.3}"
 
 # Create directory structure
 mkdir -p "$MACOS"
@@ -32,7 +33,7 @@ cat > "$CONTENTS/Info.plist" <<EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.2</string>
+    <string>$VERSION</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>LSUIElement</key>
