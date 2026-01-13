@@ -15,4 +15,9 @@ cask "blink-reminder" do
     "~/Library/Application Support/com.agamtech.blinkreminder",
     "~/Library/Preferences/com.agamtech.blinkreminder.plist",
   ]
+
+  caveats <<~EOS
+    If BlinkReminder is already running, you may need to quit it from the menu bar
+    and relaunch it for the changes to take effect.
+  EOS
 end
