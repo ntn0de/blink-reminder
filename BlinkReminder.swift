@@ -35,6 +35,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         
         setupMenu()
         requestNotificationPermission()
+        
+        // Add Sleep/Wake Observers
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(suspendTimer), name: NSWorkspace.willSleepNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(resumeTimer), name: NSWorkspace.didWakeNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(suspendTimer), name: NSWorkspace.screensDidSleepNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(resumeTimer), name: NSWorkspace.screensDidWakeNotification, object: nil)
+        
         startTimer()
     }
     
@@ -128,17 +135,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
     
+    @objc func suspendTimer() {
+        timer?.invalidate()
+    }
+    
+    @objc func resumeTimer() {
+        startTimer()
+    }
+
     func requestNotificationPermission() {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            print("Notification permission granted: \(granted)")
-            if let error = error {
-                print("Notification permission error: \(error)")
-            }
+            // Permission handler
         }
         
         center.getNotificationSettings { settings in
-            print("Notification settings: \(settings)")
+            // Settings handler
         }
     }
     
@@ -217,6 +229,36 @@ struct OverlayView: View {
     @State private var connectedTimer: Any?
     @State private var isEyeOpen = true
     @State private var isBreathing = false
+    @State private var motivationText = "Look away at something 20 feet away."
+    
+    let motivations = [
+        "Look at something 20 feet away.",
+        "Take a deep breath and relax.",
+        "Blink often to keep your eyes hydrated.",
+        "Stretch your neck and shoulders.",
+        "Drink some water.",
+        "Your eyes need rest to stay sharp.",
+        "Focus on something distant.",
+        "Relax your jaw and shoulders.",
+        "Give your mind a moment of silence.",
+        "Stare out the window and pretend you're in a music video.",
+        "Your monitor misses you, but it needs space.",
+        "A quick blink is a tiny nap for your eyes.",
+        "Hydrate before you dy-drate! (Wait, just drink water).",
+        "The pixels will be here when you get back.",
+        "Is that a bird? Is that a plane? No, it's just a break.",
+        "If you can read this, you're not looking 20 feet away!",
+        "Rumor has it, blinking makes you 1% more awesome.",
+        "Stretch like a cat. No one is watching. Probably.",
+        "Tension nahi lene ka, break lene ka!",
+        "Ae Circuit, isko bol break lene ko!",
+        "Carrom ramwanu, juice peevanu, majja ni life!",
+        "Bhidu, aankhein hai toh jahaan hai. Relax kar!",
+        "Load nahi lene ka, mast rehne ka.",
+        "Kya re bhidu, thak gaya kya?",
+        "Jadoo ki jhappi... for your eyes.",
+        "All Izz Well!"
+    ]
     
     var body: some View {
         ZStack {
@@ -239,15 +281,20 @@ struct OverlayView: View {
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: isBreathing)
                 .onAppear {
                     isBreathing = true
+                    if let randomQuote = motivations.randomElement() {
+                        motivationText = randomQuote
+                    }
                 }
                 
                 Text("Rest Your Eyes")
                     .font(.system(size: 40, weight: .bold))
                     .foregroundColor(.white)
                 
-                Text("Look away at something 20 feet away.")
+                Text(motivationText)
                     .font(.title2)
                     .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
                 
                 Text("\(timeLeft)")
                     .font(.system(size: 60, weight: .heavy, design: .monospaced))

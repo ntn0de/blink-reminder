@@ -5,7 +5,7 @@ APP_BUNDLE="$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
-VERSION="${1:-1.0.3}"
+VERSION="${1:-1.0.4}"
 
 # Create directory structure
 mkdir -p "$MACOS"
