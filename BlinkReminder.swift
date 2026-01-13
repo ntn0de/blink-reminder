@@ -18,7 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     var timer: Timer?
     var interval: TimeInterval = 20 * 60 // 20 minutes
     var overlayEnabled: Bool = true // Default to overlay since notifications are flaky
-    var overlayWindow: OverlayWindow?
+    var overlayWindows: [OverlayWindow] = []
     var isPaused: Bool = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -160,19 +160,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     func showOverlay() {
         DispatchQueue.main.async {
             // Close existing if any
-            self.overlayWindow?.close()
-            self.overlayWindow = nil
+            self.overlayWindows.forEach { $0.close() }
+            self.overlayWindows.removeAll()
             
-            let window = OverlayWindow()
-            let view = OverlayView {
-                window.close()
+            for screen in NSScreen.screens {
+                let window = OverlayWindow(frame: screen.frame)
+                let view = OverlayView {
+                    // Close all windows when any one dismisses
+                    self.overlayWindows.forEach { $0.close() }
+                    self.overlayWindows.removeAll()
+                }
+                window.contentView = NSHostingView(rootView: view)
+                window.makeKeyAndOrderFront(nil)
+                // Ensure it floats above everything
+                window.level = .floating
+                self.overlayWindows.append(window)
             }
-            window.contentView = NSHostingView(rootView: view)
-            window.makeKeyAndOrderFront(nil)
-            // Ensure it floats above everything
-            window.level = .floating
+            
             NSApp.activate(ignoringOtherApps: true)
-            self.overlayWindow = window
         }
     }
     
@@ -188,9 +193,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
 // MARK: - Overlay Window
 class OverlayWindow: NSPanel {
-    init() {
+    init(frame: NSRect) {
         super.init(
-            contentRect: NSScreen.main?.frame ?? .zero,
+            contentRect: frame,
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
