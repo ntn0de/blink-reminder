@@ -55,7 +55,11 @@ brew install --cask blink-reminder
 ## Troubleshooting
 
 -   **"App is damaged" or can't open:**
-    Because this is a self-signed app, you might need to right-click and select **Open** the first time, or go to **System Settings > Privacy & Security** to allow it.
+    Because this is a self-signed app, macOS might flag it. You can fix this by running:
+    ```bash
+    xattr -cr /Applications/BlinkReminder.app
+    ```
+    Alternatively, right-click and select **Open** the first time, or go to **System Settings > Privacy & Security** to allow it.
 -   **No Notifications:**
     Ensure the app is in the `/Applications` folder and that "BlinkReminder" is allowed in **System Settings > Notifications**.
 
