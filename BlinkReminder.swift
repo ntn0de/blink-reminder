@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 import AppKit
+import Combine
 
 @main
 struct BlinkReminderApp: App {
@@ -43,6 +44,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(resumeTimer), name: NSWorkspace.screensDidWakeNotification, object: nil)
         
         startTimer()
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        cleanup()
+    }
+    
+    deinit {
+        cleanup()
+    }
+    
+    private func cleanup() {
+        // Remove notification observers to prevent memory leaks
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        
+        // Invalidate timer
+        timer?.invalidate()
+        timer = nil
+        
+        // Close all overlay windows
+        overlayWindows.forEach { $0.close() }
+        overlayWindows.removeAll()
+        
+        // Remove status item
+        if let statusItem = statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
+        statusItem = nil
     }
     
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -137,6 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     
     @objc func suspendTimer() {
         timer?.invalidate()
+        timer = nil
     }
     
     @objc func resumeTimer() {
@@ -156,10 +185,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     
     func startTimer() {
         timer?.invalidate()
+        timer = nil
         guard !isPaused else { return }
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.triggerBreak()
         }
+        // Add to common runloop modes to ensure it fires even in certain app states
+        RunLoop.current.add(timer!, forMode: .common)
     }
     
     @objc func triggerBreak() {
@@ -226,10 +258,11 @@ struct OverlayView: View {
     var onDismiss: () -> Void
     @State private var timeLeft = 20
     @State private var timer: Timer.TimerPublisher = Timer.publish(every: 1, on: .main, in: .common)
-    @State private var connectedTimer: Any?
+    @State private var connectedTimer: Cancellable?
     @State private var isEyeOpen = true
     @State private var isBreathing = false
     @State private var motivationText = "Look away at something 20 feet away."
+    @State private var isActive = true
     
     let motivations = [
         "Look at something 20 feet away.",
@@ -315,57 +348,59 @@ struct OverlayView: View {
             }
         }
         .onAppear {
+            isActive = true
             self.connectedTimer = self.timer.connect()
             startBlinking()
         }
+        .onDisappear {
+            isActive = false
+            connectedTimer?.cancel()
+            connectedTimer = nil
+        }
         .onReceive(timer) { _ in
+            guard isActive else { return }
             if timeLeft > 0 {
                 timeLeft -= 1
-                        } else {
-                            onDismiss()
+            } else {
+                onDismiss()
+            }
+        }
+    }
+    
+    func startBlinking() {
+        guard isActive else { return }
+        
+        // More frequent blink interval between 1 and 3 seconds
+        let randomInterval = Double.random(in: 1.0...3.0)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + randomInterval) {
+            guard self.isActive else { return }
+            
+            // Close eye
+            self.isEyeOpen = false
+            
+            // Open eye after 150ms
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                guard self.isActive else { return }
+                
+                self.isEyeOpen = true
+                
+                // Maybe double blink? (20% chance)
+                if Double.random(in: 0...1) < 0.2 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        guard self.isActive else { return }
+                        self.isEyeOpen = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            guard self.isActive else { return }
+                            self.isEyeOpen = true
+                            self.startBlinking()
                         }
                     }
-                }
-                
-                    func startBlinking() {
-                
-                        // More frequent blink interval between 1 and 3 seconds
-                
-                        let randomInterval = Double.random(in: 1.0...3.0)
-                
-                        DispatchQueue.main.asyncAfter(deadline: .now() + randomInterval) {
-                
-                            // Close eye
-                
-                            isEyeOpen = false
-                
-                            
-                
-                            // Open eye after 150ms
-                
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                
-                                isEyeOpen = true
-                
-                                
-                
-                                // Maybe double blink? (20% chance)
-                
-                                if Double.random(in: 0...1) < 0.2 { 
-                
-                
-                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                     isEyeOpen = false
-                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                         isEyeOpen = true
-                                         startBlinking()
-                                     }
-                                 }
-                            } else {
-                                startBlinking()
-                            }
-                        }
-                    }
+                } else {
+                    self.startBlinking()
                 }
             }
+        }
+    }
+}
             
