@@ -2,6 +2,7 @@ import SwiftUI
 import UserNotifications
 import AppKit
 import Combine
+import ServiceManagement
 
 @main
 struct BlinkReminderApp: App {
@@ -11,6 +12,84 @@ struct BlinkReminderApp: App {
         Settings {
             EmptyView()
         }
+    }
+}
+
+struct Quotes {
+    static let english = [
+        "Look at something 20 feet away.",
+        "Take a deep breath and relax.",
+        "Blink often to keep your eyes hydrated.",
+        "Stretch your neck and shoulders.",
+        "Drink some water.",
+        "Your eyes need rest to stay sharp.",
+        "Focus on something distant.",
+        "Relax your jaw and shoulders.",
+        "Give your mind a moment of silence.",
+        "Stare out the window and pretend you're in a music video.",
+        "Your monitor misses you, but it needs space.",
+        "A quick blink is a tiny nap for your eyes.",
+        "Hydrate before you dy-drate! (Wait, just drink water).",
+        "The pixels will be here when you get back.",
+        "Is that a bird? Is that a plane? No, it's just a break.",
+        "If you can read this, you're not looking 20 feet away!",
+        "Rumor has it, blinking makes you 1% more awesome.",
+        "Stretch like a cat. No one is watching. Probably."
+    ]
+    
+    static let hindi = [
+        "Tension nahi lene ka, break lene ka!",
+        "Ae Circuit, isko bol break lene ko!",
+        "Bhidu, aankhein hai toh jahaan hai. Relax kar!",
+        "Load nahi lene ka, mast rehne ka.",
+        "Kya re bhidu, thak gaya kya?",
+        "Jadoo ki jhappi... for your eyes.",
+        "All Izz Well!",
+        "Utha le re baba, utha le... mereko nahi, is laptop ko utha le!",
+        "Yeh Baburao ka style hai! Break toh banta hai.",
+        "Dene wala jab bhi deta, deta chappar faad ke... toh break bhi chappar faad ke le!",
+        "Khopdi tod saale ka! Break nahi lega toh?",
+        "Mast joke maara re! Ab break le."
+    ]
+    
+    static let nepali = [
+        "Sathi, aankha ko jyoti nai thulo kura ho. Ekchin aaram gara.",
+        "Mero naam Rajesh Hamal, ra ma bhanchu: Break leu!",
+        "Herne katha hoina, herne byatha ho. Aankha lai aaram deu!",
+        "Eh... aankha dukhyo bhane maile ke garne? Break leu na!",
+        "Aankha futla hai! Ekchin aaram garnu pardaina?",
+        "Tyo monitor lai katti hereko? Maile ta break liye hai!",
+        "Namaste! Sanchai hunuhuncha? Aankha lai ali aaram chaincha hai.",
+        "Desh banauna gaaro cha, tara aankha jogauna sajilo cha. Break linus!",
+        "Gaaun ma huda ta hariyali herinthyo, yaha ta screen matra. Ekchin baaira herau!"
+    ]
+    
+    static func getActiveQuotes() -> [String] {
+        let defaults = UserDefaults.standard
+        // Defaults: English enabled, others disabled if not set.
+        // Actually, let's respect the stored values.
+        // We will register defaults in AppDelegate.
+        
+        var quotes: [String] = []
+        
+        if defaults.bool(forKey: "LangEnglish") {
+            quotes.append(contentsOf: english)
+        }
+        if defaults.bool(forKey: "LangHindi") {
+            quotes.append(contentsOf: hindi)
+        }
+        if defaults.bool(forKey: "LangNepali") {
+            quotes.append(contentsOf: nepali)
+        }
+        
+        // Fallback to English if nothing selected but feature is enabled, 
+        // or empty if strictly following selection. 
+        // Let's fallback to English if empty to avoid blank screen.
+        if quotes.isEmpty {
+            quotes.append(contentsOf: english)
+        }
+        
+        return quotes
     }
 }
 
@@ -24,6 +103,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
+        
+        // Register User Defaults
+        UserDefaults.standard.register(defaults: [
+            "MotivationEnabled": true,
+            "LangEnglish": true,
+            "LangHindi": false,
+            "LangNepali": false,
+            "FirstRun": true,
+            "StrictMode": false,
+            "MaxSkipsPerHour": -1 // -1 = Unlimited
+        ])
+        
+        // Handle Launch at Login on First Run
+        if UserDefaults.standard.bool(forKey: "FirstRun") {
+            enableLaunchAtLogin()
+            UserDefaults.standard.set(false, forKey: "FirstRun")
+        }
         
         // Hide dock icon
         NSApp.setActivationPolicy(.accessory)
@@ -84,6 +180,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         menu.addItem(NSMenuItem(title: "Blink Reminder v\(version)", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         
+        // Launch at Login
+        let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        launchAtLoginItem.state = isLaunchAtLoginEnabled() ? .on : .off
+        menu.addItem(launchAtLoginItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         // Interval Submenu
         let intervalMenu = NSMenuItem(title: "Interval", action: nil, keyEquivalent: "")
         let subMenu = NSMenu()
@@ -104,6 +207,62 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         intervalMenu.submenu = subMenu
         menu.addItem(intervalMenu)
         
+        // Max Skips / Hour Submenu
+        let skipsMenu = NSMenuItem(title: "Max Skips / Hour", action: nil, keyEquivalent: "")
+        let skipsSubMenu = NSMenu()
+        let currentMaxSkips = UserDefaults.standard.integer(forKey: "MaxSkipsPerHour")
+        let skipOptions = [
+            ("Strict (0)", 0),
+            ("1 Skip", 1),
+            ("3 Skips", 3),
+            ("5 Skips", 5),
+            ("Unlimited", -1)
+        ]
+        
+        for (title, val) in skipOptions {
+            let item = NSMenuItem(title: title, action: #selector(changeMaxSkips(_:)), keyEquivalent: "")
+            item.tag = val
+            item.state = (val == currentMaxSkips) ? .on : .off
+            skipsSubMenu.addItem(item)
+        }
+        skipsMenu.submenu = skipsSubMenu
+        menu.addItem(skipsMenu)
+        
+        // Settings Submenu (Motivations)
+        let settingsMenu = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        let settingsSubMenu = NSMenu()
+        
+        // Motivation Toggle
+        let motivationItem = NSMenuItem(title: "Enable Motivation Text", action: #selector(toggleMotivation(_:)), keyEquivalent: "")
+        motivationItem.state = UserDefaults.standard.bool(forKey: "MotivationEnabled") ? .on : .off
+        settingsSubMenu.addItem(motivationItem)
+        
+        settingsSubMenu.addItem(NSMenuItem.separator())
+        settingsSubMenu.addItem(NSMenuItem(title: "Languages:", action: nil, keyEquivalent: ""))
+        
+        let langEnglish = NSMenuItem(title: "English", action: #selector(toggleLanguage(_:)), keyEquivalent: "")
+        langEnglish.representedObject = "LangEnglish"
+        langEnglish.state = UserDefaults.standard.bool(forKey: "LangEnglish") ? .on : .off
+        settingsSubMenu.addItem(langEnglish)
+        
+        let langHindi = NSMenuItem(title: "Hindi", action: #selector(toggleLanguage(_:)), keyEquivalent: "")
+        langHindi.representedObject = "LangHindi"
+        langHindi.state = UserDefaults.standard.bool(forKey: "LangHindi") ? .on : .off
+        settingsSubMenu.addItem(langHindi)
+        
+        let langNepali = NSMenuItem(title: "Nepali", action: #selector(toggleLanguage(_:)), keyEquivalent: "")
+        langNepali.representedObject = "LangNepali"
+        langNepali.state = UserDefaults.standard.bool(forKey: "LangNepali") ? .on : .off
+        settingsSubMenu.addItem(langNepali)
+        
+        settingsMenu.submenu = settingsSubMenu
+        menu.addItem(settingsMenu)
+        
+        // Strict Mode Toggle
+        let strictModeItem = NSMenuItem(title: "Strict Mode", action: #selector(toggleStrictMode(_:)), keyEquivalent: "")
+        strictModeItem.state = UserDefaults.standard.bool(forKey: "StrictMode") ? .on : .off
+        menu.addItem(strictModeItem)
+        
         // Overlay Toggle
         let overlayItem = NSMenuItem(title: "Use Screen Overlay", action: #selector(toggleOverlay(_:)), keyEquivalent: "")
         overlayItem.state = overlayEnabled ? .on : .off
@@ -117,6 +276,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         statusItem?.menu = menu
     }
     
+    // MARK: - Launch at Login Logic
+    func isLaunchAtLoginEnabled() -> Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        }
+        return false // Fallback/Unknown for older OS
+    }
+    
+    @objc func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.mainApp
+            do {
+                if service.status == .enabled {
+                    try service.unregister()
+                    sender.state = .off
+                } else {
+                    try service.register()
+                    sender.state = .on
+                }
+            } catch {
+                print("Failed to toggle Launch at Login: \(error)")
+            }
+        }
+    }
+    
+    func enableLaunchAtLogin() {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.mainApp
+            if service.status != .enabled {
+                try? service.register()
+            }
+        }
+    }
+    
     @objc func changeInterval(_ sender: NSMenuItem) {
         if let newInterval = sender.representedObject as? TimeInterval {
             self.interval = newInterval
@@ -125,9 +318,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
     
+    @objc func changeMaxSkips(_ sender: NSMenuItem) {
+        let val = sender.tag
+        UserDefaults.standard.set(val, forKey: "MaxSkipsPerHour")
+        updateMenuStates()
+    }
+    
     @objc func toggleOverlay(_ sender: NSMenuItem) {
         overlayEnabled.toggle()
         updateMenuStates()
+    }
+    
+    @objc func toggleMotivation(_ sender: NSMenuItem) {
+        let current = UserDefaults.standard.bool(forKey: "MotivationEnabled")
+        UserDefaults.standard.set(!current, forKey: "MotivationEnabled")
+        sender.state = !current ? .on : .off
+    }
+    
+    @objc func toggleLanguage(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        let current = UserDefaults.standard.bool(forKey: key)
+        UserDefaults.standard.set(!current, forKey: key)
+        sender.state = !current ? .on : .off
+    }
+    
+    @objc func toggleStrictMode(_ sender: NSMenuItem) {
+        let current = UserDefaults.standard.bool(forKey: "StrictMode")
+        UserDefaults.standard.set(!current, forKey: "StrictMode")
+        sender.state = !current ? .on : .off
     }
 
     @objc func togglePause(_ sender: NSMenuItem) {
@@ -152,9 +370,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             }
         }
         
+        // Update Max Skips Check
+        let currentMax = UserDefaults.standard.integer(forKey: "MaxSkipsPerHour")
+        if let skipItem = menu.items.first(where: { $0.title == "Max Skips / Hour" }), let sub = skipItem.submenu {
+            for item in sub.items {
+                item.state = (item.tag == currentMax) ? .on : .off
+            }
+        }
+        
         // Update Overlay Check
         if let overlayItem = menu.items.first(where: { $0.title == "Use Screen Overlay" }) {
             overlayItem.state = overlayEnabled ? .on : .off
+        }
+        
+        // Update Strict Mode
+        if let strictItem = menu.items.first(where: { $0.title == "Strict Mode" }) {
+            strictItem.state = UserDefaults.standard.bool(forKey: "StrictMode") ? .on : .off
         }
 
         // Update Pause Title
@@ -202,19 +433,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
     
+    var skipTimestamps: [Date] = []
+    
     func showOverlay() {
         DispatchQueue.main.async {
             // Close existing if any
             self.overlayWindows.forEach { $0.close() }
             self.overlayWindows.removeAll()
             
+            // Prepare motivations
+            let enabled = UserDefaults.standard.bool(forKey: "MotivationEnabled")
+            let quotes = enabled ? Quotes.getActiveQuotes() : []
+            
+            // Check strict mode
+            let isStrict = UserDefaults.standard.bool(forKey: "StrictMode")
+            
+            // Check Skip Limit
+            let maxSkips = UserDefaults.standard.integer(forKey: "MaxSkipsPerHour")
+            
+            // Cleanup old timestamps (older than 1 hour)
+            let now = Date()
+            self.skipTimestamps = self.skipTimestamps.filter { now.timeIntervalSince($0) < 3600 }
+            
+            let canSkip = (maxSkips == -1) || (self.skipTimestamps.count < maxSkips)
+            
             for screen in NSScreen.screens {
                 let window = OverlayWindow(frame: screen.frame)
-                let view = OverlayView {
+                let view = OverlayView(onDismiss: {
                     // Close all windows when any one dismisses
                     self.overlayWindows.forEach { $0.close() }
                     self.overlayWindows.removeAll()
-                }
+                }, onSkipAction: {
+                    // Record skip
+                    self.skipTimestamps.append(Date())
+                }, quotes: quotes, isStrict: isStrict, canSkip: canSkip)
                 window.contentView = NSHostingView(rootView: view)
                 window.makeKeyAndOrderFront(nil)
                 // Ensure it floats above everything
@@ -256,42 +508,18 @@ class OverlayWindow: NSPanel {
 // MARK: - Overlay View
 struct OverlayView: View {
     var onDismiss: () -> Void
+    var onSkipAction: () -> Void
+    var quotes: [String]
+    var isStrict: Bool
+    var canSkip: Bool
+    
     @State private var timeLeft = 20
     @State private var timer: Timer.TimerPublisher = Timer.publish(every: 1, on: .main, in: .common)
     @State private var connectedTimer: Cancellable?
     @State private var isEyeOpen = true
     @State private var isBreathing = false
-    @State private var motivationText = "Look away at something 20 feet away."
+    @State private var motivationText = ""
     @State private var isActive = true
-    
-    let motivations = [
-        "Look at something 20 feet away.",
-        "Take a deep breath and relax.",
-        "Blink often to keep your eyes hydrated.",
-        "Stretch your neck and shoulders.",
-        "Drink some water.",
-        "Your eyes need rest to stay sharp.",
-        "Focus on something distant.",
-        "Relax your jaw and shoulders.",
-        "Give your mind a moment of silence.",
-        "Stare out the window and pretend you're in a music video.",
-        "Your monitor misses you, but it needs space.",
-        "A quick blink is a tiny nap for your eyes.",
-        "Hydrate before you dy-drate! (Wait, just drink water).",
-        "The pixels will be here when you get back.",
-        "Is that a bird? Is that a plane? No, it's just a break.",
-        "If you can read this, you're not looking 20 feet away!",
-        "Rumor has it, blinking makes you 1% more awesome.",
-        "Stretch like a cat. No one is watching. Probably.",
-        "Tension nahi lene ka, break lene ka!",
-        "Ae Circuit, isko bol break lene ko!",
-        "Carrom ramwanu, juice peevanu, majja ni life!",
-        "Bhidu, aankhein hai toh jahaan hai. Relax kar!",
-        "Load nahi lene ka, mast rehne ka.",
-        "Kya re bhidu, thak gaya kya?",
-        "Jadoo ki jhappi... for your eyes.",
-        "All Izz Well!"
-    ]
     
     var body: some View {
         ZStack {
@@ -314,8 +542,11 @@ struct OverlayView: View {
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: isBreathing)
                 .onAppear {
                     isBreathing = true
-                    if let randomQuote = motivations.randomElement() {
+                    if let randomQuote = quotes.randomElement() {
                         motivationText = randomQuote
+                    } else {
+                        // If motivation is disabled or empty list
+                         motivationText = ""
                     }
                 }
                 
@@ -323,11 +554,13 @@ struct OverlayView: View {
                     .font(.system(size: 40, weight: .bold))
                     .foregroundColor(.white)
                 
-                Text(motivationText)
-                    .font(.title2)
-                    .foregroundColor(.gray)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+                if !motivationText.isEmpty {
+                    Text(motivationText)
+                        .font(.title2)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
                 
                 Text("\(timeLeft)")
                     .font(.system(size: 60, weight: .heavy, design: .monospaced))
@@ -335,16 +568,26 @@ struct OverlayView: View {
                     .padding()
                     .background(Circle().stroke(Color.blue, lineWidth: 4))
                 
-                Button(action: onDismiss) {
-                    Text("Skip Break")
-                        .font(.headline)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.2))
-                        .cornerRadius(10)
-                        .foregroundColor(.white)
+                if !isStrict && canSkip {
+                    Button(action: {
+                        onSkipAction()
+                        onDismiss()
+                    }) {
+                        Text("Skip Break")
+                            .font(.headline)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.white.opacity(0.2))
+                            .cornerRadius(10)
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                     Text(isStrict ? "Strict Mode On" : "Skip Limit Reached")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(.top, 10)
                 }
-                .buttonStyle(.plain)
             }
         }
         .onAppear {

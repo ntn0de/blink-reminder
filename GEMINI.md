@@ -61,3 +61,10 @@ brew update && brew upgrade --cask blink-reminder
 - Added Pause/Resume functionality.
 - Implemented "👀" emoji-based icon generation.
 - Added ad-hoc code signing and Bundle ID updates for better notification support.
+- Added "Launch at Login" functionality (macOS 13+).
+- Added Motivation text settings with multi-language support (English, Hindi, Nepali).
+- Added Nepali motivation quotes featuring Rajesh Hamal, Hari Bahadur, and Dhurmus.
+- Added Hindi motivation quotes featuring Baburao.
+- Added Strict Mode (no skipping allowed).
+- Added "Max Skips Per Hour" setting (0, 1, 3, 5, Unlimited).
+
