@@ -1,11 +1,12 @@
 #!/bin/bash
+set -euo pipefail
 
 APP_NAME="BlinkReminder"
 APP_BUNDLE="$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
-VERSION="${1:-1.0.6}"
+VERSION="${1:-1.0.7}"
 
 # Create directory structure
 mkdir -p "$MACOS"
@@ -86,4 +87,3 @@ swiftc -O -sdk $(xcrun --show-sdk-path --sdk macosx) \
 codesign --force --deep --sign - "$APP_BUNDLE"
 
 echo "Build complete: $APP_BUNDLE"
-

@@ -4,3 +4,4 @@ BlinkReminder.app/
 *.icns
 BlinkReminder.iconset/
 app.log
+.codex/config.toml

@@ -3,6 +3,8 @@ import UserNotifications
 import AppKit
 import Combine
 import ServiceManagement
+import AVFoundation
+import CoreMediaIO
 
 @main
 struct BlinkReminderApp: App {
@@ -96,10 +98,18 @@ struct Quotes {
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var statusItem: NSStatusItem?
     var timer: Timer?
+    var cameraUsageMonitor: Timer?
+    var manualPauseResumeTimer: Timer?
     var interval: TimeInterval = 20 * 60 // 20 minutes
     var overlayEnabled: Bool = true // Default to overlay since notifications are flaky
     var overlayWindows: [OverlayWindow] = []
-    var isPaused: Bool = false
+    var isManuallyPaused: Bool = false
+    var isAutoPausedForVideoCall: Bool = false
+    var manualPauseUntil: Date?
+    
+    var isPaused: Bool {
+        isManuallyPaused || isAutoPausedForVideoCall
+    }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
@@ -112,7 +122,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             "LangNepali": false,
             "FirstRun": true,
             "StrictMode": false,
-            "MaxSkipsPerHour": -1 // -1 = Unlimited
+            "MaxSkipsPerHour": -1, // -1 = Unlimited
+            "AutoPauseForCamera": true,
         ])
         
         // Handle Launch at Login on First Run
@@ -126,12 +137,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Blink Reminder")
-        }
+        updateStatusIcon()
         
         setupMenu()
         requestNotificationPermission()
+        startVideoCallMonitoring()
         
         // Add Sleep/Wake Observers
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(suspendTimer), name: NSWorkspace.willSleepNotification, object: nil)
@@ -157,6 +167,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         // Invalidate timer
         timer?.invalidate()
         timer = nil
+        cameraUsageMonitor?.invalidate()
+        cameraUsageMonitor = nil
+        manualPauseResumeTimer?.invalidate()
+        manualPauseResumeTimer = nil
         
         // Close all overlay windows
         overlayWindows.forEach { $0.close() }
@@ -178,6 +192,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         menu.addItem(NSMenuItem(title: "Blink Reminder v\(version)", action: nil, keyEquivalent: ""))
+        let statusInfoItem = NSMenuItem(title: "Status: Running", action: nil, keyEquivalent: "")
+        statusInfoItem.tag = 9001
+        statusInfoItem.isEnabled = false
+        menu.addItem(statusInfoItem)
         menu.addItem(NSMenuItem.separator())
         
         // Launch at Login
@@ -268,7 +286,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         overlayItem.state = overlayEnabled ? .on : .off
         menu.addItem(overlayItem)
         
+        // Auto-Pause Toggle
+        let autoPauseItem = NSMenuItem(title: "Auto-Pause for Video Call", action: #selector(toggleAutoPause(_:)), keyEquivalent: "")
+        autoPauseItem.state = UserDefaults.standard.bool(forKey: "AutoPauseForCamera") ? .on : .off
+        menu.addItem(autoPauseItem)
+        
         menu.addItem(NSMenuItem.separator())
+        
+        let pauseForMenu = NSMenuItem(title: "Pause For", action: nil, keyEquivalent: "")
+        let pauseForSubMenu = NSMenu()
+        pauseForSubMenu.addItem(NSMenuItem(title: "15 Minutes", action: #selector(pauseFor15Minutes), keyEquivalent: ""))
+        pauseForSubMenu.addItem(NSMenuItem(title: "30 Minutes", action: #selector(pauseFor30Minutes), keyEquivalent: ""))
+        pauseForSubMenu.addItem(NSMenuItem(title: "1 Hour", action: #selector(pauseFor1Hour), keyEquivalent: ""))
+        pauseForMenu.submenu = pauseForSubMenu
+        menu.addItem(pauseForMenu)
+        
         menu.addItem(NSMenuItem(title: "Pause", action: #selector(togglePause(_:)), keyEquivalent: "p"))
         menu.addItem(NSMenuItem(title: "Trigger Break Now", action: #selector(triggerBreak), keyEquivalent: "b"))
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -329,6 +361,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         updateMenuStates()
     }
     
+    @objc func toggleAutoPause(_ sender: NSMenuItem) {
+        let current = UserDefaults.standard.bool(forKey: "AutoPauseForCamera")
+        UserDefaults.standard.set(!current, forKey: "AutoPauseForCamera")
+        sender.state = !current ? .on : .off
+        // Re-evaluate current state immediately
+        checkVideoCallState()
+    }
+    
+    @objc func pauseFor15Minutes() {
+        pauseForDuration(15 * 60)
+    }
+    
+    @objc func pauseFor30Minutes() {
+        pauseForDuration(30 * 60)
+    }
+    
+    @objc func pauseFor1Hour() {
+        pauseForDuration(60 * 60)
+    }
+    
     @objc func toggleMotivation(_ sender: NSMenuItem) {
         let current = UserDefaults.standard.bool(forKey: "MotivationEnabled")
         UserDefaults.standard.set(!current, forKey: "MotivationEnabled")
@@ -349,15 +401,58 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     @objc func togglePause(_ sender: NSMenuItem) {
-        isPaused.toggle()
-        if isPaused {
-            timer?.invalidate()
-            statusItem?.button?.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "Blink Reminder (Paused)")
-        } else {
-            startTimer()
-            statusItem?.button?.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Blink Reminder")
+        if isAutoPausedForVideoCall && !isManuallyPaused {
+            return
         }
-        updateMenuStates()
+        if isManuallyPaused {
+            clearManualPauseSchedule()
+            isManuallyPaused = false
+        } else {
+            clearManualPauseSchedule()
+            isManuallyPaused = true
+        }
+        applyPauseState()
+    }
+    
+    func pauseForDuration(_ duration: TimeInterval) {
+        clearManualPauseSchedule()
+        isManuallyPaused = true
+        manualPauseUntil = Date().addingTimeInterval(duration)
+        
+        manualPauseResumeTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.clearManualPauseSchedule()
+            self.isManuallyPaused = false
+            self.applyPauseState()
+        }
+        
+        if let manualPauseResumeTimer {
+            RunLoop.current.add(manualPauseResumeTimer, forMode: .common)
+        }
+        
+        applyPauseState()
+    }
+    
+    func clearManualPauseSchedule() {
+        manualPauseResumeTimer?.invalidate()
+        manualPauseResumeTimer = nil
+        manualPauseUntil = nil
+    }
+    
+    func remainingManualPauseText() -> String? {
+        guard let manualPauseUntil else { return nil }
+        let remaining = manualPauseUntil.timeIntervalSinceNow
+        guard remaining > 0 else { return nil }
+        let remainingMinutes = Int(ceil(remaining / 60.0))
+        return "\(remainingMinutes)m left"
+    }
+    
+    func refreshManualPauseIfExpired() {
+        guard isManuallyPaused, let manualPauseUntil else { return }
+        if Date() >= manualPauseUntil {
+            clearManualPauseSchedule()
+            isManuallyPaused = false
+        }
     }
     
     func updateMenuStates() {
@@ -383,6 +478,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             overlayItem.state = overlayEnabled ? .on : .off
         }
         
+        // Update Auto-Pause
+        if let autoPauseItem = menu.items.first(where: { $0.title == "Auto-Pause for Video Call" }) {
+            autoPauseItem.state = UserDefaults.standard.bool(forKey: "AutoPauseForCamera") ? .on : .off
+        }
+        
         // Update Strict Mode
         if let strictItem = menu.items.first(where: { $0.title == "Strict Mode" }) {
             strictItem.state = UserDefaults.standard.bool(forKey: "StrictMode") ? .on : .off
@@ -390,7 +490,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
         // Update Pause Title
         if let pauseItem = menu.items.first(where: { $0.action == #selector(togglePause(_:)) }) {
-            pauseItem.title = isPaused ? "Resume" : "Pause"
+            if isAutoPausedForVideoCall && !isManuallyPaused {
+                pauseItem.title = "Paused (Video Call)"
+            } else {
+                pauseItem.title = isManuallyPaused ? "Resume" : "Pause"
+            }
+            pauseItem.state = isPaused ? .on : .off
+            pauseItem.isEnabled = !(isAutoPausedForVideoCall && !isManuallyPaused)
+        }
+        
+        if let statusInfoItem = menu.item(withTag: 9001) {
+            if isAutoPausedForVideoCall {
+                statusInfoItem.title = "Status: Paused (Video Call)"
+            } else if isManuallyPaused {
+                if let remaining = remainingManualPauseText() {
+                    statusInfoItem.title = "Status: Paused (\(remaining))"
+                } else {
+                    statusInfoItem.title = "Status: Paused (Manual)"
+                }
+            } else {
+                statusInfoItem.title = "Status: Running"
+            }
         }
     }
     
@@ -400,7 +520,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
     
     @objc func resumeTimer() {
-        startTimer()
+        refreshManualPauseIfExpired()
+        applyPauseState()
     }
 
     func requestNotificationPermission() {
@@ -431,6 +552,157 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         } else {
             sendNotification()
         }
+    }
+    
+    func startVideoCallMonitoring() {
+        // Always schedule the timer, but gate behavior inside checkVideoCallState()
+        checkVideoCallState()
+        cameraUsageMonitor?.invalidate()
+        cameraUsageMonitor = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.checkVideoCallState()
+        }
+        if let cameraUsageMonitor {
+            RunLoop.current.add(cameraUsageMonitor, forMode: .common)
+        }
+    }
+    
+    func checkVideoCallState() {
+        refreshManualPauseIfExpired()
+        
+        let autoPauseEnabled = UserDefaults.standard.bool(forKey: "AutoPauseForCamera")
+        if !autoPauseEnabled {
+            // If auto-pause is disabled but we were previously auto-paused, clear it
+            if isAutoPausedForVideoCall {
+                isAutoPausedForVideoCall = false
+                applyPauseState()
+            }
+            updateMenuStates()
+            return
+        }
+
+        let isCameraRunning = isAnyCameraRunningCMIO() || isAnyCaptureDeviceInUse()
+
+        guard isAutoPausedForVideoCall != isCameraRunning else {
+            updateMenuStates()
+            return
+        }
+        isAutoPausedForVideoCall = isCameraRunning
+        if isAutoPausedForVideoCall {
+            // Close any visible overlays immediately when auto-paused
+            overlayWindows.forEach { $0.close() }
+            overlayWindows.removeAll()
+        }
+        applyPauseState()
+    }
+    
+    func isAnyCaptureDeviceInUse() -> Bool {
+        var discoveryDeviceTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInWideAngleCamera,
+            .externalUnknown
+        ]
+        if #available(macOS 13.0, *) {
+            discoveryDeviceTypes.append(.deskViewCamera)
+        }
+        if #available(macOS 14.0, *) {
+            discoveryDeviceTypes.append(.continuityCamera)
+            discoveryDeviceTypes.append(.external)
+        }
+        
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: discoveryDeviceTypes,
+            mediaType: .video,
+            position: .unspecified
+        )
+        
+        if discoverySession.devices.contains(where: { $0.isInUseByAnotherApplication }) {
+            return true
+        }
+        
+        return false
+    }
+
+    private func isAnyCameraRunningCMIO() -> Bool {
+        var propertyAddress = CMIOObjectPropertyAddress(
+            mSelector: CMIOObjectPropertySelector(kCMIOHardwarePropertyDevices),
+            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
+            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain)
+        )
+
+        var dataSize: UInt32 = 0
+        var dataUsed: UInt32 = 0
+        var status = CMIOObjectGetPropertyDataSize(CMIOObjectID(kCMIOObjectSystemObject), &propertyAddress, 0, nil, &dataSize)
+        if status != noErr || dataSize == 0 { return false }
+
+        let deviceCount = Int(dataSize) / MemoryLayout<CMIOObjectID>.size
+        var deviceIDs = [CMIOObjectID](repeating: 0, count: deviceCount)
+
+        status = CMIOObjectGetPropertyData(CMIOObjectID(kCMIOObjectSystemObject), &propertyAddress, 0, nil, dataSize, &dataUsed, &deviceIDs)
+        if status != noErr { return false }
+
+        for deviceID in deviceIDs {
+            // Check if device is a camera by asking for its stream configuration of video scope
+            var classAddr = CMIOObjectPropertyAddress(
+                mSelector: CMIOObjectPropertySelector(kCMIOObjectPropertyClass),
+                mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
+                mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain)
+            )
+            var classID = UInt32(0)
+            let classSize = UInt32(MemoryLayout.size(ofValue: classID))
+            var classUsed: UInt32 = 0
+            let classStatus = CMIOObjectGetPropertyData(deviceID, &classAddr, 0, nil, classSize, &classUsed, &classID)
+            if classStatus != noErr { continue }
+
+            // Only consider camera devices
+            if classID != kCMIODeviceClassID { continue }
+
+            // Now check if the device is running somewhere
+            var runningAddr = CMIOObjectPropertyAddress(
+                mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
+                mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
+                mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain)
+            )
+            var isRunning: UInt32 = 0
+            let isRunningSize = UInt32(MemoryLayout.size(ofValue: isRunning))
+            var isRunningUsed: UInt32 = 0
+            let runStatus = CMIOObjectGetPropertyData(deviceID, &runningAddr, 0, nil, isRunningSize, &isRunningUsed, &isRunning)
+            if runStatus == noErr && isRunning != 0 {
+                return true
+            }
+        }
+        return false
+    }
+    
+    func applyPauseState() {
+        if isPaused {
+            timer?.invalidate()
+            timer = nil
+            // Ensure overlays are dismissed while paused
+            overlayWindows.forEach { $0.close() }
+            overlayWindows.removeAll()
+        } else {
+            startTimer()
+        }
+        
+        updateStatusIcon()
+        updateMenuStates()
+    }
+    
+    func updateStatusIcon() {
+        guard let button = statusItem?.button else { return }
+        
+        if isPaused {
+            button.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "Blink Reminder (Paused)")
+            button.image?.isTemplate = true
+            if isAutoPausedForVideoCall && !isManuallyPaused {
+                button.setAccessibilityLabel("Blink Reminder (Paused for video call)")
+            } else {
+                button.setAccessibilityLabel("Blink Reminder (Paused)")
+            }
+            return
+        }
+        
+        button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Blink Reminder")
+        button.image?.isTemplate = true
     }
     
     var skipTimestamps: [Date] = []
